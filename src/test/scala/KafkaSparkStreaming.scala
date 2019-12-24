@@ -1,3 +1,6 @@
+/* This is the code which will
+fetch the data in small batches from Kafka broker 
+& will prepare that data and load into Cassandra NoSQL. */
 
 import java.time.{LocalDateTime, ZoneId}
 import java.time.format.DateTimeFormatter
@@ -15,20 +18,23 @@ import com.datastax.spark.connector.streaming._
 import org.apache.spark
 
 object KafkaSparkStreaming {
+  
   def main(args: Array[String]): Unit = {
+    
     val brokers = "localhost:9092"
     val groupid = "GRP1"
     val topics = "patient_data2"
 
-    val sparkConf = new SparkConf().setMaster("local[*]").setAppName("KAFKAStreaming").set("spark.cassandra.connection.host","192.168.111.131")
+    val sparkConf = new SparkConf().setMaster("local[*]").setAppName("KAFKAStreaming")
+      .set("spark.cassandra.connection.host","192.168.111.131")
       .set("spark.cassandra.connection.port","9042")
       .set("spark.cassandra.auth.username", "healthcare-project").set("spark.cassandra.auth.password", "password")
       .set("spark.cassandra.output.consistency.level","LOCAL_ONE")
-
+      // Making a Spark-Cassandra Connection with the Cassandra host node.
+    
     val ssc = new StreamingContext(sparkConf, Seconds(30))
-
-    //sc.setLogLevel("OFF")
-
+     // Creating Spark Streaming Context.
+    
     val topicSet = topics.split(",").toSet
     val kafkaParams = Map[String, Object](
       ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG -> brokers,
@@ -39,9 +45,10 @@ object KafkaSparkStreaming {
 
     val messages = KafkaUtils.createDirectStream[String, String](ssc,
       LocationStrategies.PreferConsistent, ConsumerStrategies.Subscribe[String, String](topicSet, kafkaParams))
+    // Subscribing the Topic,fetching the data from Kafka broker in batches and storing it as a Dstream.
+    
     val lines = messages.map(_.value)
-
-    val PatientRDD = lines.map(row => {
+    val PersonRDD = lines.map(row => {
 
       val columnValues = row.split(",")
       val pId = columnValues(0).toInt
@@ -61,12 +68,13 @@ object KafkaSparkStreaming {
       }
       (pId,pLoadTime,pAge,pAvgGlucoseLevel,pBmi,pEverMarried,pGender,pHeartDisease,pName,pResidenceType,pSmokingStatus)
     })
-
-    PatientRDD.foreachRDD(rdd => {
+    // Preparing the data to be loaded into Cassandra database.
+    
+    PersonRDD.foreachRDD(rdd => {
       rdd.saveToCassandra("test","people_data1",SomeColumns("pid","ploadtime","page","pavgglucoselevel","pbmi","pevermarried","pgender","pheartdisease","pname","presidencetype","psmokingstatus"))})
-
-   // PatientRDD.map(a => a._1+","+a._2)
-    // kick it off
+    // Loading the Rdd data into Cassandra.
+  
+    // Now Let's kick it off.
     ssc.start()
     ssc.awaitTermination()
   }
